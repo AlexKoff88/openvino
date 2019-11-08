@@ -225,46 +225,46 @@ Program::Program(InferenceEngine::ICNNNetwork& network, std::shared_ptr<const cl
     , p_currentOutputs({}) {
     InitFormat(network);
 
-    if (config.enableInt8) {
-        auto params = LayerTransformation::Params(true,  // updatePrecisions
-                                                  true,  // quantizeOutputs
-                                                  true,  // weightsToConst
-                                                  LayerTransformation::QuantizedTensorAlignment::UpdateLevel,  // quantizedTensorAlignmentOnActivations
-                                                  LayerTransformation::QuantizedTensorAlignment::None,  // quantizedTensorAlignmentOnWeights
-                                                  true,  // roundQuantizedValues
-                                                  true,  // updateBiases
-                                                  true,   // supportAsymmetricQuantization
-                                                  {Precision::U8, Precision::I8},  // Precision on activations
-                                                  {Precision::I8});  // Precision on weights
+    // if (config.enableInt8) {
+    //     auto params = LayerTransformation::Params(true,  // updatePrecisions
+    //                                               true,  // quantizeOutputs
+    //                                               true,  // weightsToConst
+    //                                               LayerTransformation::QuantizedTensorAlignment::UpdateLevel,  // quantizedTensorAlignmentOnActivations
+    //                                               LayerTransformation::QuantizedTensorAlignment::None,  // quantizedTensorAlignmentOnWeights
+    //                                               true,  // roundQuantizedValues
+    //                                               true,  // updateBiases
+    //                                               true,   // supportAsymmetricQuantization
+    //                                               {Precision::U8, Precision::I8},  // Precision on activations
+    //                                               {Precision::I8});  // Precision on weights
 
-        auto transforms = LowPrecisionTransformer::getAllTransformations(params)
-                .add<FullyConnectedTransformation>(LayerTransformation::Params(params).setSupportAsymmetricQuantization(false), "FullyConnected")
-                .add<FullyConnectedTransformation>(LayerTransformation::Params(params).setSupportAsymmetricQuantization(false), "GEMM");
+    //     auto transforms = LowPrecisionTransformer::getAllTransformations(params)
+    //             .add<FullyConnectedTransformation>(LayerTransformation::Params(params).setSupportAsymmetricQuantization(false), "FullyConnected")
+    //             .add<FullyConnectedTransformation>(LayerTransformation::Params(params).setSupportAsymmetricQuantization(false), "GEMM");
 
-        auto it = details::CNNNetworkIterator(&network);
-        auto end = details::CNNNetworkIterator();
-        bool fqFound = false;
-        bool allFQareSupported = true;
-        while (it != end) {
-            if (CaselessEq<std::string>()((*it)->type, "FakeQuantize")) {
-                fqFound = true;
-                auto levels = (*it)->GetParamAsUInt("levels");
-                if (levels != 255 && levels != 256) {
-                    allFQareSupported = false;
-                    break;
-                }
-            }
-            it++;
-        }
+    //     auto it = details::CNNNetworkIterator(&network);
+    //     auto end = details::CNNNetworkIterator();
+    //     bool fqFound = false;
+    //     bool allFQareSupported = true;
+    //     while (it != end) {
+    //         if (CaselessEq<std::string>()((*it)->type, "FakeQuantize")) {
+    //             fqFound = true;
+    //             auto levels = (*it)->GetParamAsUInt("levels");
+    //             if (levels != 255 && levels != 256) {
+    //                 allFQareSupported = false;
+    //                 break;
+    //             }
+    //         }
+    //         it++;
+    //     }
 
-        // [WA] Convert quantized FP16 model to FP32 to avoid possible overflow and mixed precision errors
-        if (fqFound && allFQareSupported) {
-            NetPass::ConvertPrecision(network, Precision::FP16, Precision::FP32);
-        }
+    //     // [WA] Convert quantized FP16 model to FP32 to avoid possible overflow and mixed precision errors
+    //     if (fqFound && allFQareSupported) {
+    //         NetPass::ConvertPrecision(network, Precision::FP16, Precision::FP32);
+    //     }
 
-        LowPrecisionTransformer transformer(transforms);
-        transformer.transform(network);
-    }
+    //     LowPrecisionTransformer transformer(transforms);
+    //     transformer.transform(network);
+    // }
 
     NetPass::CombineRNNSeq(network);
     for (int i = 0; i < 2; i++) {
