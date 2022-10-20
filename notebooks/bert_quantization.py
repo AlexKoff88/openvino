@@ -384,12 +384,13 @@ dataset_config = {
 }
 algorithms = [
     {
-        "name": "MinMaxQuantization", #"DefaultQuantization"
+        "name": "DefaultQuantization", #"MinMaxQuantization",
         "params": {
             "target_device": "ANY",
             "model_type": "transformer",
             "preset": "performance",
             "stat_subset_size": 250,
+            "use_fast_bias": False,
         },
     }
 ]
