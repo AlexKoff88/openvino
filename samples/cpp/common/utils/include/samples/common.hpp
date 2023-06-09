@@ -511,7 +511,6 @@ static inline std::vector<std::shared_ptr<T[]>> generate_random_data(ov::Tensor 
     }
 
     // double the amount of required data to always have a buffer to fill requests
-    auto data_size = tensor_size * num_requests * 2;
     std::vector<std::shared_ptr<T[]>> data;
     uniformDistribution<T> distribution(rand_min, rand_max);
     for (size_t i = 0; i < num_requests * 2; i++) {

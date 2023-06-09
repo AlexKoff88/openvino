@@ -145,17 +145,14 @@ int main(int argc, char* argv[]) {
                     });
                 
                 // Fill model inputs
-                std::unique_lock<std::mutex> lock(mutex);
-                {
-                    for (size_t i = 0; i < compiled_model.inputs().size(); i++) {
-                        auto input = compiled_model.input(i);
-                        auto tensor_data = data[i][data_index].get();
-                        ov::Tensor input_tensor(input_types[i], input_shapes[i], tensor_data);
-                        ireq.set_tensor(input, input_tensor);
-                    }
-                    data_index = data_index == data_size - 1 ? 0 : data_index++;
+                for (size_t i = 0; i < data.size(); i++) {
+                    auto input = ireq.get_input_tensor(i);
+                    auto tensor_data = input.data<float>(); // TODO: float is used exlicitely
+                    auto user_data = data[i][data_index].get();
+                    std::memcpy(tensor_data, user_data, input.get_byte_size());
                 }
-                cv.notify_one();
+                data_index = data_index == data_size - 1 ? 0 : data_index++;
+
                 ireq.start_async();
             }
         }
