@@ -59,17 +59,22 @@ int main(int argc, char* argv[]) {
         });
 
         std::vector<std::vector<std::shared_ptr<float[]>>> data;
+        std::vector<ov::element::Type> input_types;
+        std::vector<ov::Shape> input_shapes;
         for (const ov::Output<const ov::Node>& model_input : compiled_model.inputs()) {
             auto input_data = generate_random_data<float>(ireqs[0].get_tensor(model_input), nireq);
+            input_types.push_back(ireqs[0].get_tensor(model_input).get_element_type());
+            input_shapes.push_back(ireqs[0].get_tensor(model_input).get_shape());
             data.push_back(input_data);
         }
+        auto data_size = data[0].size();
 
         // Fill input data for ireqs
-        for (ov::InferRequest& ireq : ireqs) {
-            for (const ov::Output<const ov::Node>& model_input : compiled_model.inputs()) {
-                fill_tensor_random(ireq.get_tensor(model_input));
-            }
-        }
+        // for (ov::InferRequest& ireq : ireqs) {
+        //     for (const ov::Output<const ov::Node>& model_input : compiled_model.inputs()) {
+        //         fill_tensor_random(ireq.get_tensor(model_input));
+        //     }
+        // }
         // Warm up
         for (ov::InferRequest& ireq : ireqs) {
             ireq.start_async();
@@ -95,6 +100,7 @@ int main(int argc, char* argv[]) {
         }
         auto start = std::chrono::steady_clock::now();
         auto time_point_to_finish = start + seconds_to_run;
+        size_t data_index = 0;
         // Once there’s a finished ireq wake up main thread.
         // Compute and save latency for that ireq and prepare for next inference by setting up callback.
         // Callback pushes that ireq again to finished ireqs when infrence is completed.
@@ -137,6 +143,19 @@ int main(int argc, char* argv[]) {
                         }
                         cv.notify_one();
                     });
+                
+                // Fill model inputs
+                std::unique_lock<std::mutex> lock(mutex);
+                {
+                    for (size_t i = 0; i < compiled_model.inputs().size(); i++) {
+                        auto input = compiled_model.input(i);
+                        auto tensor_data = data[i][data_index].get();
+                        ov::Tensor input_tensor(input_types[i], input_shapes[i], tensor_data);
+                        ireq.set_tensor(input, input_tensor);
+                    }
+                    data_index = data_index == data_size - 1 ? 0 : data_index++;
+                }
+                cv.notify_one();
                 ireq.start_async();
             }
         }
