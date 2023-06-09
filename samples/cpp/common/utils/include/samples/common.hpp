@@ -498,6 +498,34 @@ static inline void fill_tensor_random(ov::Tensor tensor) {
     }
 }
 
+template <typename T>
+static inline std::vector<std::shared_ptr<T[]>> generate_random_data(ov::Tensor tensor, 
+                               size_t num_requests,
+                               T rand_min = std::numeric_limits<uint8_t>::min(),
+                               T rand_max = std::numeric_limits<uint8_t>::max()) {
+    std::mt19937 gen(0);
+    size_t tensor_size = tensor.get_size();
+    if (0 == tensor_size) {
+        throw std::runtime_error(
+            "Models with dynamic shapes aren't supported. Input tensors must have specific shapes before inference");
+    }
+
+    // double the amount of required data to always have a buffer to fill requests
+    auto data_size = tensor_size * num_requests * 2;
+    std::vector<std::shared_ptr<T[]>> data;
+    uniformDistribution<T> distribution(rand_min, rand_max);
+    for (size_t i = 0; i < num_requests * 2; i++) {
+        std::shared_ptr<T[]> tensor_data (new T[tensor_size]);
+        T* ptr = tensor_data.get();
+        for (size_t j = 0; j < tensor_size; j++) {
+            ptr[j] = static_cast<T>(distribution(gen));
+        }
+        data.push_back(tensor_data);
+    }
+
+    return data;
+}
+
 static UNUSED bool sort_pc_descend(const ov::ProfilingInfo& profiling1, const ov::ProfilingInfo& profiling2) {
     return profiling1.real_time > profiling2.real_time;
 }

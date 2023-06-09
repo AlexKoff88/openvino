@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <string>
 #include <vector>
+#include "stdlib.h"
 
 // clang-format off
 #include "openvino/openvino.hpp"
@@ -22,25 +23,47 @@ int main(int argc, char* argv[]) {
     try {
         slog::info << "OpenVINO:" << slog::endl;
         slog::info << ov::get_openvino_version();
-        if (argc != 2) {
-            slog::info << "Usage : " << argv[0] << " <path_to_model>" << slog::endl;
+        if (argc < 2) {
+            slog::info << "Usage : " << argv[0] << " <path_to_model> <batch_size> <streams> <infer_requests>"<< slog::endl;
             return EXIT_FAILURE;
         }
+
+        auto batch_size = argc < 3 ? 1 : atoi(argv[2]);
+        auto streams = argc < 4 ? -1 : atoi(argv[3]);
+
         // Optimize for throughput. Best throughput can be reached by
         // running multiple ov::InferRequest instances asyncronously
-        ov::AnyMap tput{{ov::hint::performance_mode.name(), ov::hint::PerformanceMode::THROUGHPUT}};
+        ov::AnyMap config{{ov::hint::performance_mode.name(), ov::hint::PerformanceMode::THROUGHPUT}};
+        if (streams > 0) {
+            config.emplace(ov::num_streams.name(), streams);
+        }
 
         // Create ov::Core and use it to compile a model.
         // Pick a device by replacing CPU, for example MULTI:CPU(4),GPU(8).
         // It is possible to set CUMULATIVE_THROUGHPUT as ov::hint::PerformanceMode for AUTO device
         ov::Core core;
-        ov::CompiledModel compiled_model = core.compile_model(argv[1], "CPU", tput);
+        auto model = core.read_model(argv[1]);
+
+        // Set batch size
+        ov::Shape inputShape = model->input().get_shape();
+        auto batchId = 0;
+        inputShape[batchId] = batch_size;
+        model->reshape(inputShape);
+        
+        ov::CompiledModel compiled_model = core.compile_model(model, "CPU", config);
         // Create optimal number of ov::InferRequest instances
-        uint32_t nireq = compiled_model.get_property(ov::optimal_number_of_infer_requests);
+        uint32_t nireq = argc < 5 ? compiled_model.get_property(ov::optimal_number_of_infer_requests) : atoi(argv[4]);
         std::vector<ov::InferRequest> ireqs(nireq);
         std::generate(ireqs.begin(), ireqs.end(), [&] {
             return compiled_model.create_infer_request();
         });
+
+        std::vector<std::vector<std::shared_ptr<float[]>>> data;
+        for (const ov::Output<const ov::Node>& model_input : compiled_model.inputs()) {
+            auto input_data = generate_random_data<float>(ireqs[0].get_tensor(model_input), nireq);
+            data.push_back(input_data);
+        }
+
         // Fill input data for ireqs
         for (ov::InferRequest& ireq : ireqs) {
             for (const ov::Output<const ov::Node>& model_input : compiled_model.inputs()) {
@@ -125,7 +148,7 @@ int main(int argc, char* argv[]) {
                    << "Latency:" << slog::endl;
         size_t percent = 50;
         LatencyMetrics{latencies, "", percent}.write_to_slog();
-        slog::info << "Throughput: " << double_to_string(1000 * latencies.size() / duration) << " FPS" << slog::endl;
+        slog::info << "Throughput: " << double_to_string(1000 * latencies.size() / duration * batch_size) << " FPS" << slog::endl;
     } catch (const std::exception& ex) {
         slog::err << ex.what() << slog::endl;
         return EXIT_FAILURE;
