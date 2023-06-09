@@ -24,12 +24,16 @@ int main(int argc, char* argv[]) {
         slog::info << "OpenVINO:" << slog::endl;
         slog::info << ov::get_openvino_version();
         if (argc < 2) {
-            slog::info << "Usage : " << argv[0] << " <path_to_model> <batch_size> <streams> <infer_requests>"<< slog::endl;
+            slog::info << "Usage : " << argv[0] << " <path_to_model> <batch_size> <streams> <infer_requests> <device>"<< slog::endl;
             return EXIT_FAILURE;
         }
 
         auto batch_size = argc < 3 ? 1 : atoi(argv[2]);
         auto streams = argc < 4 ? -1 : atoi(argv[3]);
+        char device[4] = "CPU";
+        if (argc >= 6) {
+            strcpy(device, argv[5]);
+        }
 
         // Optimize for throughput. Best throughput can be reached by
         // running multiple ov::InferRequest instances asyncronously
@@ -50,7 +54,7 @@ int main(int argc, char* argv[]) {
         inputShape[batchId] = batch_size;
         model->reshape(inputShape);
         
-        ov::CompiledModel compiled_model = core.compile_model(model, "CPU", config);
+        ov::CompiledModel compiled_model = core.compile_model(model, device, config);
         // Create optimal number of ov::InferRequest instances
         uint32_t nireq = argc < 5 ? compiled_model.get_property(ov::optimal_number_of_infer_requests) : atoi(argv[4]);
         std::vector<ov::InferRequest> ireqs(nireq);
@@ -58,6 +62,7 @@ int main(int argc, char* argv[]) {
             return compiled_model.create_infer_request();
         });
 
+        // Create and initialize input data (2 * nireq)
         std::vector<std::vector<std::shared_ptr<float[]>>> data;
         std::vector<ov::element::Type> input_types;
         std::vector<ov::Shape> input_shapes;
@@ -69,12 +74,13 @@ int main(int argc, char* argv[]) {
         }
         auto data_size = data[0].size();
 
-        // Fill input data for ireqs
-        // for (ov::InferRequest& ireq : ireqs) {
-        //     for (const ov::Output<const ov::Node>& model_input : compiled_model.inputs()) {
-        //         fill_tensor_random(ireq.get_tensor(model_input));
-        //     }
-        // }
+        // Create ouput data storage
+        std::vector<std::shared_ptr<float[]>> result;
+        for (size_t i = 0; i < nireq; i++) {
+            std::shared_ptr<float[]> res(new float[ireqs[0].get_output_tensor(0).get_size()]);
+            result.push_back(res);
+        }
+
         // Warm up
         for (ov::InferRequest& ireq : ireqs) {
             ireq.start_async();
@@ -126,7 +132,7 @@ int main(int argc, char* argv[]) {
                     latencies.push_back(std::chrono::duration_cast<Ms>(time_point - timedIreq.start).count());
                 }
                 ireq.set_callback(
-                    [&ireq, time_point, &mutex, &finished_ireqs, &callback_exception, &cv](std::exception_ptr ex) {
+                    [&ireq, time_point, &mutex, &finished_ireqs, &callback_exception, &cv, &result, &data_index](std::exception_ptr ex) {
                         // Keep callback small. This improves performance for fast (tens of thousands FPS) models
                         std::unique_lock<std::mutex> lock(mutex);
                         {
@@ -143,6 +149,12 @@ int main(int argc, char* argv[]) {
                         }
                         cv.notify_one();
                     });
+
+                // Copy result
+                auto output = ireq.get_output_tensor(0);
+                auto tensor_data = output.data<float>();
+                auto result_data = result[data_index / 2].get();
+                std::memcpy(result_data, tensor_data, output.get_byte_size());
                 
                 // Fill model inputs
                 for (size_t i = 0; i < data.size(); i++) {
